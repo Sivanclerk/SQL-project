@@ -1,0 +1,105 @@
+CREATE DATABASE SHOPPING_AS;
+USE SHOPPING_AS;
+CREATE TABLE orderinfo(
+    order_id INT PRIMARY KEY NOT NULL,
+    user_id INT,
+    ispaid VARCHAR(10),
+    price FLOAT,
+    paidtime VARCHAR(30)
+);
+
+CREATE TABLE userinfo(
+    user_id INT PRIMARY KEY,
+    sex VARCHAR(10),
+    birth DATE
+);
+SELECT paidtime FROM orderinfo;
+
+-- 1. Count the number of people who placed orders in different months
+SELECT COUNT(DISTINCT user_id) AS ORDER_NUMBER, YEAR(paidtime) AS YEAR, MONTH(paidtime) AS MONTH
+FROM orderinfo
+WHERE ispaid = "PAID"
+GROUP BY YEAR, MONTH;
+
+-- 2. Calculate the repurchase rate (consumption in the next month) and the repeat purchase rate (multiple purchases in a month) for users in March
+SELECT COUNT(T), COUNT(IF(T>1,1,NULL)), COUNT(IF(T>1,1,NULL))/COUNT(T) AS ratio
+FROM ( SELECT user_id, COUNT(user_id) AS T FROM orderinfo
+       WHERE ispaid = 'PAID'
+       AND MONTH(paidtime) = 3
+       GROUP BY user_id) SUB;
+
+-- Repurchase rate
+SELECT t1.m,
+COUNT(t1.user_id) AS TOTAL_U,
+COUNT(t2.user_id) AS REBUY_U,
+COUNT(t2.user_id)/COUNT(t1.user_id) AS RATIO
+FROM (
+      SELECT user_id, DATE_FORMAT(paidtime, '%Y-%m-01') AS m FROM orderinfo
+      WHERE isPaid = 'PAID'
+      GROUP BY user_id, DATE_FORMAT(paidtime, '%Y-%m-01')) t1
+LEFT JOIN (
+      SELECT user_id, DATE_FORMAT(paidtime, '%Y-%m-01') AS m FROM orderinfo
+      WHERE isPaid = 'PAID'
+      GROUP BY user_id, DATE_FORMAT(paidtime, '%Y-%m-01')) t2
+ON t1.user_id = t2.user_id AND t2.m = DATE_SUB(t1.m, INTERVAL 1 MONTH)
+GROUP BY t1.m;
+
+-- Repeat purchase rate
+SELECT DISTINCT user_id FROM orderinfo WHERE MONTH(paidtime)=4
+AND user_id IN (
+    SELECT DISTINCT user_id
+    FROM orderinfo
+    WHERE MONTH(paidtime)=5);            -- Six users ordered in May
+
+-- 3. Check if there is a difference in consumption frequency between genders
+SELECT
+ SEX, COUNT(1)
+FROM
+(select *
+from orderinfo AS o
+JOIN
+(select USER_ID AS UID, SEX from userinfo WHERE sex<>'') AS u
+ON o.USER_ID = u.UID
+GROUP BY o.order_id, u.SEX) AS SUB
+GROUP BY sex;
+
+-- 4. For users who made multiple purchases, calculate the interval between the first and last purchase
+SELECT order_id, MAX(paidtime), MIN(paidtime), TIMESTAMPDIFF(DAY, MIN(paidtime), MAX(paidtime))
+FROM
+orderinfo
+GROUP BY user_id
+HAVING COUNT(user_id) > 1;
+
+-- 5. Compare the consumption amounts of users in different age groups
+SELECT SUM(price),
+CASE
+    WHEN age BETWEEN 10 AND 19 THEN '10-19'
+    WHEN age BETWEEN 20 AND 29 THEN '20-29'
+    WHEN age BETWEEN 30 AND 39 THEN '30-39'
+    WHEN age BETWEEN 40 AND 49 THEN '40-49'
+    WHEN age BETWEEN 50 AND 59 THEN '50-59'
+    WHEN age BETWEEN 60 AND 69 THEN '60-69'
+    WHEN age BETWEEN 70 AND 79 THEN '70-79'
+    ELSE NULL
+END AS age_group
+FROM
+     (SELECT *
+     FROM orderinfo
+     WHERE ispaid='PAID') a
+     JOIN
+     (SELECT USER_ID, YEAR(NOW())-YEAR(birth) AS age
+     FROM userinfo
+     WHERE birth IS NOT NULL) b
+     ON a.USER_ID = b.USER_ID
+GROUP BY age_group
+ORDER BY age_group ASC;
+
+-- 6. Calculate the Pareto principle (80/20 rule) in consumption: The top 20% of consumers contribute how much in terms of amount
+SELECT ROUND(COUNT(DISTINCT user_id)*0.2) FROM orderinfo WHERE ispaid='PAID';
+-- Result is 17130
+SELECT COUNT(user_id), SUM(total) FROM (
+    SELECT user_id, SUM(price) AS total FROM orderinfo o
+    WHERE isPaid = 'PAID'
+    GROUP BY user_id
+    ORDER BY total DESC
+    LIMIT 17130) t; 
